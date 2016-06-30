@@ -7,6 +7,7 @@ and may not be redistributed without written permission.*/
 #include <stdio.h>
 #include <string>
 #include <vector>
+#include <array>
 
 //Screen dimension constants
 const int SCREEN_WIDTH = 800;
@@ -16,6 +17,7 @@ const int SCREEN_HEIGHT = 600;
 const int numBrickTypes = 6; 
 const int numPaddleTypes = 6; 
 const int numBallTypes = 2; 
+const int numGameBricks = 36; 
 
 
 //Brick sides enum
@@ -147,7 +149,7 @@ class brick
 		static const int brick_height = 20;
 		bool hitbyball;
 		brickside sidehit;
-
+		int bricktype; 
 
 		SDL_Rect brickRect;
 
@@ -155,7 +157,7 @@ class brick
 		brick();
 
 		//Shows the brick on the screen
-		int render(int idBrick);
+		void render();
 
 		//Arrange brick in correct position
 		void arrange(int posX, int posY);
@@ -468,20 +470,12 @@ brick::brick()
 	brickRect.w = 0; 
 	sidehit = NONE; 
 	hitbyball = false;
+	bricktype = 0; 
 }
 
-int brick::render(int idBrick)
+void brick::render()
 {
-	if(idBrick <= numBrickTypes-1)
-	{
-		gBrickTexture.render(mPosX, mPosY, &gBrickClips[idBrick]);
-		return 0; 
-	}
-	else
-	{
-		printf("Selected invalid brick. There is not a brick with the ID %d\n", idBrick);
-		return 1; 
-	}
+	gBrickTexture.render(mPosX, mPosY, &gBrickClips[bricktype]);
 }
 
 void brick::arrange(int posX, int posY)
@@ -574,6 +568,12 @@ void ball::move(std::vector<brick> &gameBricks)
 			switch (gameBricks[c].sidehit)
 			{
 				case TOP:
+					{
+						mPosY -= mVelY;
+						mVelY = -1*mVelY;
+						shiftColliders();
+						break;
+					}
 				case BOTTOM:
 					{
 						mPosY -= mVelY;
@@ -583,6 +583,12 @@ void ball::move(std::vector<brick> &gameBricks)
 					}
 
 				case RIGHT:
+					{
+						mPosX -= mVelX;
+						mVelX = mVelX*-1;
+						shiftColliders();
+						break;
+					}
 				case LEFT:
 					{
 						mPosX -= mVelX;
@@ -844,7 +850,31 @@ int main( int argc, char* args[] )
 
 			// instantiate game objects
 			paddle mainPaddle;
-			std::vector<brick> gameBricks(6);
+			
+			//Create the playing field with numGameBricks, arrange them and make them random types. 
+			std::vector<brick> gameBricks(numGameBricks);
+
+			for(int i = 0; i < gameBricks.size(); i++)
+			{
+				gameBricks[i].bricktype = rand() % 6; 
+
+				if(i < 9)
+				{
+					gameBricks[i].arrange(80*i+40, 20);
+				}
+				else if (i >= 9 && i < 18)
+				{
+					gameBricks[i].arrange(80*(i-9)+40, 40);
+				}
+				else if (i >= 18 && i < 27)
+				{
+					gameBricks[i].arrange(80*(i-18)+40, 60); 
+				}
+				else
+				{
+					gameBricks[i].arrange(80*(i-27)+40, 80); 				
+				}
+			}
 
 			ball mainBall;
 
@@ -898,10 +928,9 @@ int main( int argc, char* args[] )
 				}
 
 				//Arrange and Render bricks
-				for(int i = 0; i < gameBricks.size(); i++)
+				for(brick b: gameBricks)
 				{
-					gameBricks[i].arrange(i*80,0);
-					gameBricks[i].render(i);
+					b.render(); 
 				}
 
 				mainPaddle.render(); 
