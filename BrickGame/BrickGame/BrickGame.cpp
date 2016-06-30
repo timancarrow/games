@@ -6,13 +6,23 @@ and may not be redistributed without written permission.*/
 #include <SDL_image.h>
 #include <stdio.h>
 #include <string>
+#include <vector>
 
 //Screen dimension constants
 const int SCREEN_WIDTH = 800;
 const int SCREEN_HEIGHT = 600;
-const int numBricks = 6; 
-const int numPaddles = 6; 
-const int numBalls = 2; 
+
+// Game globals
+const int numBrickTypes = 6; 
+const int numPaddleTypes = 6; 
+const int numBallTypes = 2; 
+
+
+//Brick sides enum
+enum brickside
+{
+	NONE, TOP, RIGHT, BOTTOM, LEFT
+};
 
 //A circle stucture
 struct Circle
@@ -135,6 +145,9 @@ class brick
 		//Brick dimensions
 		static const int brick_width = 80;
 		static const int brick_height = 20;
+		bool hitbyball;
+		brickside sidehit;
+
 
 		SDL_Rect brickRect;
 
@@ -160,7 +173,7 @@ class ball
 		static const int ball_HEIGHT = 20;
 
 		//Maximum axis velocity of the ball
-		static const int ball_VEL = 4;
+		static const int ball_VEL = 10;
 
 		//Initializes the variables
 		ball();
@@ -169,7 +182,7 @@ class ball
 		void handleEvent( SDL_Event& e, bool gameOn);
 
 		//Moves the ball
-		void move(brick gameBricks[]);
+		void move(std::vector<brick> &gameBricks);
 
 		//Shows the ball on the screen
 		void render();
@@ -185,7 +198,7 @@ class ball
 		Circle mBallCollider;
 
 		////Moves the collision circle relative to the balls offset
-		//void shiftColliders();
+		void shiftColliders();
 };
 
 
@@ -200,6 +213,10 @@ void close();
 
 //Circle/Box collision detector
 bool checkCollision( Circle& a, SDL_Rect& b );
+
+brickside checkCollisionSide(Circle& a, SDL_Rect& b);
+
+bool updateCollisionSide(Circle& a, brick& b);
 
 //Calculates distance squared between two points
 double distanceSquared( int x1, int y1, int x2, int y2 );
@@ -218,9 +235,9 @@ LTexture gBallTexture;
 
 //Clips
 
-SDL_Rect gPaddleClips[numPaddles]; 
-SDL_Rect gBrickClips[numBricks];
-SDL_Rect gBallClips[numBalls];
+SDL_Rect gPaddleClips[numPaddleTypes]; 
+SDL_Rect gBrickClips[numBrickTypes];
+SDL_Rect gBallClips[numBallTypes];
 
 
 LTexture::LTexture()
@@ -445,11 +462,17 @@ brick::brick()
 {
 	mPosX = 0; 
 	mPosY = 0; 
+	brickRect.x = 0; 
+	brickRect.y = 0; 
+	brickRect.h = 0; 
+	brickRect.w = 0; 
+	sidehit = NONE; 
+	hitbyball = false;
 }
 
 int brick::render(int idBrick)
 {
-	if(idBrick <= numBricks-1)
+	if(idBrick <= numBrickTypes-1)
 	{
 		gBrickTexture.render(mPosX, mPosY, &gBrickClips[idBrick]);
 		return 0; 
@@ -486,7 +509,7 @@ ball::ball()
     mVelY = 0;
 
 	//// move collider relative to the circle
-	//shiftColliders();
+	shiftColliders();
 }
 
 void ball::handleEvent( SDL_Event& e, bool gameOn )
@@ -508,37 +531,80 @@ void ball::handleEvent( SDL_Event& e, bool gameOn )
     }
 }
 
-void ball::move(brick gameBricks[])
+void ball::move(std::vector<brick> &gameBricks)
 {
     //Move the ball left or right
     mPosX += mVelX;
+	shiftColliders();
 
-    //If the ball went too far to the left or right or collided
-	if( (mPosX - mBallCollider.r < 0) || (mPosX + mBallCollider.r > SCREEN_WIDTH) ||
-		checkCollision(mBallCollider, gameBricks[0].brickRect) || checkCollision(mBallCollider, gameBricks[1].brickRect))
-    {
-        //Invert x velocity to make it bounce
+	//Move the ball up or down
+    mPosY += mVelY;
+	shiftColliders(); 
+
+    //Check left/right Screen Boundary collisions
+	if( (mPosX - mBallCollider.r < 0) || (mPosX + mBallCollider.r > SCREEN_WIDTH))
+	{
+        //Move ball back and invert x velocity to make it bounce
         mPosX -= mVelX;
 		mVelX = mVelX*-1;
+		shiftColliders();
     }
 
-    //Move the ball up or down
-    mPosY += mVelY;
-
-    //If the ball went too far up or down
-	if( ( mPosY - mBallCollider.r < 0 ) || ( mPosY + mBallCollider.r > SCREEN_HEIGHT) ||
-		checkCollision(mBallCollider, gameBricks[0].brickRect) || checkCollision(mBallCollider, gameBricks[1].brickRect))
+	//Check up/down Screen Boundary collisions
+	if( ( mPosY - mBallCollider.r < 0 ) || ( mPosY + mBallCollider.r > SCREEN_HEIGHT))
     {
         //Invert Y velocity to make it bounce
         mPosY -= mVelY;
 		mVelY = -1*mVelY;
+		shiftColliders();
     }
+	
+	//Check for a brick collision
+	for(int c = 0; c < gameBricks.size(); c++)
+	{
+		/* +opt - an optimization can be made here. We are checking every brick for collision but technically a ball could not collide with
+	       two bricks at the same time so we should break the evaluation whenever one collision occurs. */
+		if(checkCollision(mBallCollider, gameBricks[c].brickRect))
+		{
+		//collision with a brick, mark the brick as hit and on which side
+		//update the balls trajectory
+			gameBricks[c].hitbyball = true;
+			updateCollisionSide(mBallCollider, gameBricks[c]);
+
+			switch (gameBricks[c].sidehit)
+			{
+				case TOP:
+				case BOTTOM:
+					{
+						mPosY -= mVelY;
+						mVelY = -1*mVelY;
+						shiftColliders();
+						break;
+					}
+
+				case RIGHT:
+				case LEFT:
+					{
+						mPosX -= mVelX;
+						mVelX = mVelX*-1;
+						shiftColliders();
+						break;
+					}
+			}
+		}
+	}
 }
 
 void ball::render()
 {
     //Show the ball
 	gBallTexture.render( mPosX - mBallCollider.r, mPosY - mBallCollider.r, &gBallClips[0] );
+}
+
+void ball::shiftColliders()
+{
+	mBallCollider.x = mPosX; 
+	mBallCollider.y = mPosY; 
 }
 
 
@@ -616,7 +682,7 @@ bool loadMedia()
 		gPaddleClips[0].h = 24; 	
 
 
-		for(int r = 0; r < numBricks; r++)
+		for(int r = 0; r < numBrickTypes; r++)
 		{
 			gBrickClips[r].x = 0; 
 			gBrickClips[r].y = r*20; 
@@ -654,10 +720,10 @@ void close()
 	SDL_Quit();
 }
 
-bool checkCollision( Circle& a, SDL_Rect& b )
+bool checkCollision( Circle& a, SDL_Rect& b)
 {
     //Closest point on collision box
-    int cX, cY;
+    int cX, cY = 0;
 
     //Find closest x offset
     if( a.x < b.x )
@@ -698,6 +764,52 @@ bool checkCollision( Circle& a, SDL_Rect& b )
     return false;
 }
 
+// Updates the brick.sidehit with the side that was hit. Return of true is success, return of false is that no side was hit
+bool updateCollisionSide(Circle& a, brick& b)
+{
+	if(a.x < b.brickRect.x) // ball is to the left of the brick
+	{	
+		if(a.y < b.brickRect.y - b.brickRect.h/2) // ball is above the brick
+		{
+			//This is a top hit
+			b.sidehit = TOP; return true; 
+		}
+		else if (a.y > b.brickRect.y + b.brickRect.h/2) // ball is below the brick
+		{
+			//This is a bottom hit
+			b.sidehit = BOTTOM; return true; 
+		}
+
+		else
+		{
+			//Ball is neither below or above the brick. This is a left hit
+			b.sidehit = LEFT; return true; 
+		}
+	}
+
+	if(a.x > b.brickRect.x) // ball is to the right of the brick
+	{
+		if(a.y < b.brickRect.y - b.brickRect.h/2) // ball is above the brick
+		{
+			//This is a top hit
+			b.sidehit = TOP; return true; 
+		}
+		else if (a.y > b.brickRect.y + b.brickRect.h/2) // ball is below the brick
+		{
+			//This is a bottom hit
+			b.sidehit = BOTTOM; return true; 
+		}
+
+		else
+		{
+			//Ball is neither below or above the brick. This is a left hit
+			b.sidehit = RIGHT; return true; 
+		}
+
+		return false; 
+	}
+}
+
 double distanceSquared( int x1, int y1, int x2, int y2 )
 {
 	int deltaX = x2 - x1;
@@ -732,7 +844,8 @@ int main( int argc, char* args[] )
 
 			// instantiate game objects
 			paddle mainPaddle;
-			brick gameBricks[brickcount]; 
+			std::vector<brick> gameBricks(6);
+
 			ball mainBall;
 
 			// Game has started?
@@ -777,8 +890,15 @@ int main( int argc, char* args[] )
 				SDL_SetRenderDrawColor( gRenderer, 0xFF, 0xFF, 0xFF, 0xFF );
 				SDL_RenderClear( gRenderer );
 
+				//Remove destroyed blocks if they exist
+				for(int i = 0; i < gameBricks.size(); i++)
+				{
+					if(gameBricks[i].hitbyball == true)
+						gameBricks.erase(gameBricks.begin() + i);
+				}
+
 				//Arrange and Render bricks
-				for(int i = 0; i < 6; i++)
+				for(int i = 0; i < gameBricks.size(); i++)
 				{
 					gameBricks[i].arrange(i*80,0);
 					gameBricks[i].render(i);
