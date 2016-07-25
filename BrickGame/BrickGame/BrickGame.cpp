@@ -4,14 +4,20 @@ and may not be redistributed without written permission.*/
 //Using SDL, SDL_image, standard IO, and strings
 #include <SDL.h>
 #include <SDL_image.h>
+#include <SDL_ttf.h>
 #include <stdio.h>
 #include <string>
+#include <sstream>
 #include <vector>
 #include <array>
 
 //Screen dimension constants
 const int SCREEN_WIDTH = 800;
-const int SCREEN_HEIGHT = 600;
+const int SCREEN_HEIGHT = 800;
+
+//Score Board dimension
+const int SCOREBOARD_WIDTH = 800; 
+const int SCOREBOARD_HEIGHT = 200; 
 
 // Game globals
 const int numBrickTypes = 6; 
@@ -119,7 +125,7 @@ class paddle
 		static const int paddle_height = 24;
 
 		//Maximum axis velocity of the paddle
-		static const int paddle_vel = 10;
+		static const int paddle_vel = 8;
 
 		//Initializes the variables
 		paddle();
@@ -133,12 +139,17 @@ class paddle
 		//Shows the brick on the screen
 		void render();
 
-    private:
-		//The X and Y offsets
-		int mPosX, mPosY;
+		SDL_Rect mPaddleCollider;
 
 		//The velocity of the paddle
 		int mVelX, mVelY;
+
+		//The X and Y offsets
+		int mPosX, mPosY;
+
+    private:
+		
+		void shiftColliders();
 };
 
 class brick
@@ -175,7 +186,7 @@ class ball
 		static const int ball_HEIGHT = 20;
 
 		//Maximum axis velocity of the ball
-		static const int ball_VEL = 10;
+		static const int ball_VEL = 6;
 
 		//Initializes the variables
 		ball();
@@ -184,25 +195,39 @@ class ball
 		void handleEvent( SDL_Event& e, bool gameOn);
 
 		//Moves the ball
-		void move(std::vector<brick> &gameBricks);
+		void move(std::vector<brick> &gameBricks, paddle &gamePaddle);
 
 		//Shows the ball on the screen
 		void render();
 
-    private:
+		// ball collision circle
+		Circle mBallCollider;
+
 		//The X and Y offsets of the ball
 		int mPosX, mPosY;
 
+    private:
 		//The velocity of the ball
 		int mVelX, mVelY;
-
-		// ball collision circle
-		Circle mBallCollider;
 
 		////Moves the collision circle relative to the balls offset
 		void shiftColliders();
 };
 
+class scoreboard 
+{
+public: 
+	
+	// variable to hold current fps
+	double avgFPS; 
+
+	// number of bricks cleared	
+	int gamescore; 
+
+	scoreboard(); 
+
+	void render();
+}; 
 
 //Starts up SDL and creates window
 bool init();
@@ -234,12 +259,21 @@ LTexture gDotTexture;
 LTexture gBrickTexture;
 LTexture gPaddleTexture;
 LTexture gBallTexture;
+LTexture gScoreBoardTexture; 
+LTexture gScoreTextHeaderTexture; 
+LTexture gFPSTextHeaderTexture;
+LTexture gScoreTextTexture; 
+LTexture gFPSTextTexture;
+SDL_Color textColor = {41, 41, 41};
 
 //Clips
-
 SDL_Rect gPaddleClips[numPaddleTypes]; 
 SDL_Rect gBrickClips[numBrickTypes];
 SDL_Rect gBallClips[numBallTypes];
+SDL_Rect gScoreBoardClip; 
+
+//Global Font
+TTF_Font *gFont = NULL; 
 
 
 LTexture::LTexture()
@@ -390,16 +424,120 @@ int LTexture::getHeight()
 	return mHeight;
 }
 
+LTimer::LTimer()
+{
+    //Initialize the variables
+    mStartTicks = 0;
+    mPausedTicks = 0;
+
+    mPaused = false;
+    mStarted = false;
+}
+
+void LTimer::start()
+{
+    //Start the timer
+    mStarted = true;
+
+    //Unpause the timer
+    mPaused = false;
+
+    //Get the current clock time
+    mStartTicks = SDL_GetTicks();
+	mPausedTicks = 0;
+}
+
+void LTimer::stop()
+{
+    //Stop the timer
+    mStarted = false;
+
+    //Unpause the timer
+    mPaused = false;
+
+	//Clear tick variables
+	mStartTicks = 0;
+	mPausedTicks = 0;
+}
+
+void LTimer::pause()
+{
+    //If the timer is running and isn't already paused
+    if( mStarted && !mPaused )
+    {
+        //Pause the timer
+        mPaused = true;
+
+        //Calculate the paused ticks
+        mPausedTicks = SDL_GetTicks() - mStartTicks;
+		mStartTicks = 0;
+    }
+}
+
+void LTimer::unpause()
+{
+    //If the timer is running and paused
+    if( mStarted && mPaused )
+    {
+        //Unpause the timer
+        mPaused = false;
+
+        //Reset the starting ticks
+        mStartTicks = SDL_GetTicks() - mPausedTicks;
+
+        //Reset the paused ticks
+        mPausedTicks = 0;
+    }
+}
+
+Uint32 LTimer::getTicks()
+{
+	//The actual timer time
+	Uint32 time = 0;
+
+    //If the timer is running
+    if( mStarted )
+    {
+        //If the timer is paused
+        if( mPaused )
+        {
+            //Return the number of ticks when the timer was paused
+            time = mPausedTicks;
+        }
+        else
+        {
+            //Return the current time minus the start time
+            time = SDL_GetTicks() - mStartTicks;
+        }
+    }
+
+    return time;
+}
+
+bool LTimer::isStarted()
+{
+	//Timer is running and paused or unpaused
+    return mStarted;
+}
+
+bool LTimer::isPaused()
+{
+	//Timer is running and paused
+    return mPaused && mStarted;
+}
 
 paddle::paddle()
 {
     //Initialize the paddle at the bottom middle
 	mPosX = SCREEN_WIDTH/2 - (paddle_width/2); // in the middle 
-    mPosY = SCREEN_HEIGHT- paddle_height; // bottom of the screen minus the height of the paddle
+	mPosY = SCREEN_HEIGHT - SCOREBOARD_HEIGHT - paddle_height; // bottom of the screen minus the height of the paddle
 
     //Initialize the velocity
     mVelX = 0;
     mVelY = 0;
+
+	mPaddleCollider.h = paddle_height;
+	mPaddleCollider.w = paddle_width;
 }
 
 void paddle::handleEvent( SDL_Event& e )
@@ -434,6 +572,7 @@ void paddle::move()
 {
     //Move the paddle left or right
     mPosX += mVelX;
+	shiftColliders();
 
     //If the paddle went too far to the left or right
     if( ( mPosX < 0 ) || ( mPosX + paddle_width> SCREEN_WIDTH ) )
@@ -441,16 +580,6 @@ void paddle::move()
         //Move back
         mPosX -= mVelX;
     }
-
-    ////Move the paddle up or down
-    //mPosY += mVelY;
-
-    ////If the paddle went too far up or down
-    //if( ( mPosY < 0 ) || ( mPosY + paddle_height > SCREEN_HEIGHT ) )
-    //{
-    //    //Move back
-    //    mPosY -= mVelY;
-    //}
 }
 
 void paddle::render()
@@ -459,6 +588,11 @@ void paddle::render()
 		gPaddleTexture.render(mPosX, mPosY, &gPaddleClips[0]);
 }
 
+void paddle::shiftColliders() 
+{
+	mPaddleCollider.x = mPosX; 
+	mPaddleCollider.y = mPosY; 
+}
 
 brick::brick()
 {
@@ -492,8 +626,8 @@ void brick::arrange(int posX, int posY)
 ball::ball()
 {
     //Initialize the offsets
-	mPosX = SCREEN_WIDTH/2-10;
-	mPosY = SCREEN_HEIGHT-24-20;
+	mPosX = -200;
+	mPosY = -200; 
 
 	// Set collision circle size
 	mBallCollider.r = ball_WIDTH/2; 
@@ -525,7 +659,7 @@ void ball::handleEvent( SDL_Event& e, bool gameOn )
     }
 }
 
-void ball::move(std::vector<brick> &gameBricks)
+void ball::move(std::vector<brick> &gameBricks, paddle &gamePaddle)
 {
     //Move the ball left or right
     mPosX += mVelX;
@@ -599,6 +733,21 @@ void ball::move(std::vector<brick> &gameBricks)
 			}
 		}
 	}
+
+	//check for collision with paddle
+	if(checkCollision(mBallCollider, gamePaddle.mPaddleCollider))
+	{
+		//change ball velocity based on paddles velocity
+		mVelX = mVelX + gamePaddle.mVelX/4; 
+
+		//invert y to bounce
+		mPosY -= mVelY;
+		mVelY = -1*mVelY;
+
+		//update balls collider
+		shiftColliders();
+
+	}
 }
 
 void ball::render()
@@ -613,6 +762,16 @@ void ball::shiftColliders()
 	mBallCollider.y = mPosY; 
 }
 
+scoreboard::scoreboard()
+{
+	int fps = 0; 
+	int gamescore = 0; 
+}
+
+void scoreboard::render()
+{
+	gScoreBoardTexture.render(0, 0, &gScoreBoardClip); 
+}
 
 bool init()
 {
@@ -634,7 +793,7 @@ bool init()
 		}
 
 		//Create window
-		gWindow = SDL_CreateWindow( "SDL Tutorial", SDL_WINDOWPOS_UNDEFINED, SDL_WINDOWPOS_UNDEFINED, SCREEN_WIDTH, SCREEN_HEIGHT, SDL_WINDOW_SHOWN );
+		gWindow = SDL_CreateWindow( "SDL Tutorial", SDL_WINDOWPOS_UNDEFINED, SDL_WINDOWPOS_UNDEFINED, SCREEN_WIDTH, SCREEN_HEIGHT, SDL_WINDOW_SHOWN);
 		if( gWindow == NULL )
 		{
 			printf( "Window could not be created! SDL Error: %s\n", SDL_GetError() );
@@ -652,7 +811,7 @@ bool init()
 			else
 			{
 				//Initialize renderer color
-				SDL_SetRenderDrawColor( gRenderer, 0xFF, 0xFF, 0xFF, 0xFF );
+				SDL_SetRenderDrawColor(gRenderer, 195, 195, 195, 0xFF);
 
 				//Initialize PNG loading
 				int imgFlags = IMG_INIT_PNG;
@@ -661,6 +820,13 @@ bool init()
 					printf( "SDL_image could not initialize! SDL_image Error: %s\n", IMG_GetError() );
 					success = false;
 				}
+
+				 //Initialize SDL_ttf
+                if( TTF_Init() == -1 )
+                {
+                    printf( "SDL_ttf could not initialize! SDL_ttf Error: %s\n", TTF_GetError() );
+                    success = false;
+                }
 			}
 		}
 	}
@@ -673,11 +839,11 @@ bool loadMedia()
 	//Loading success flag
 	bool success = true;
 
-	//Load paddle texture
+	//Load paddle, brick, ball texture
 	if( !gPaddleTexture.loadFromFile( "media/paddlesspritesheet.png" ) | !gBrickTexture.loadFromFile("media/bricksspritesheet.png")
 		| !gBallTexture.loadFromFile("media/ballsspritesheet.png"))
 	{
-		printf( "Failed to load paddle sprite texture!\n" );
+		printf( "Failed to load paddle, ball, brick sprite texture!\n" );
 		success = false;
 	}
 	else
@@ -697,6 +863,7 @@ bool loadMedia()
 
 		}
 
+		// Load Ball
 		gBallClips[0].x = 0; 
 		gBallClips[0].y = 0; 
 		gBallClips[0].w = 20;
@@ -704,6 +871,32 @@ bool loadMedia()
 		
 	}
 
+	//load scoreboard textures
+	if(!gScoreBoardTexture.loadFromFile( "media/scoreboard.png" ))
+	{
+		printf( "Failed to load score board texture!\n" );
+		success = false;
+	}
+	else
+	{
+		gScoreBoardClip.x = 0; 
+		gScoreBoardClip.y = 0; 
+		gScoreBoardClip.h = SCOREBOARD_HEIGHT; 
+		gScoreBoardClip.w = SCOREBOARD_WIDTH; 		
+	}
+	
+	gFont = TTF_OpenFont( "media/alterebro.ttf", 28);  
+
+	if(gFont == NULL)
+	{
+		printf( "Failed to load lazy font! SDL_ttf Error: %s\n", TTF_GetError() );
+        success = false;
+	}
+	else 
+	{
+		gScoreTextHeaderTexture.loadFromRenderedText("Score: ", textColor); 
+		gFPSTextHeaderTexture.loadFromRenderedText("FPS: ", textColor); 
+	}
 
 	return success;
 }
@@ -715,6 +908,9 @@ void close()
 	gBallTexture.free();
 	gPaddleTexture.free();
 
+	//Free global font
+	TTF_CloseFont(gFont); 
+
 	//Destroy window	
 	SDL_DestroyRenderer( gRenderer );
 	SDL_DestroyWindow( gWindow );
@@ -722,6 +918,7 @@ void close()
 	gRenderer = NULL;
 
 	//Quit SDL subsystems
+	TTF_Quit();
 	IMG_Quit();
 	SDL_Quit();
 }
@@ -845,6 +1042,20 @@ int main( int argc, char* args[] )
 			//Event handler
 			SDL_Event e;
 
+			// frames per second timer
+			LTimer fpsTimer; 
+
+			// in memory text stream
+			std::stringstream fpsTimeText; 
+			std::stringstream scoreText; 
+			
+			int countedFrames = 0; 
+			fpsTimer.start(); 
+
+			double avgFPS = 0; 
+
+			
+
 			// Maintain list of bricks in the game
 			const int brickcount = 6; 
 
@@ -853,6 +1064,19 @@ int main( int argc, char* args[] )
 			
 			//Create the playing field with numGameBricks, arrange them and make them random types. 
 			std::vector<brick> gameBricks(numGameBricks);
+
+			SDL_Rect mainGameViewport; 
+			mainGameViewport.x = 0; 
+			mainGameViewport.y = 0; 
+			mainGameViewport.w = SCREEN_WIDTH; 
+			mainGameViewport.h = SCREEN_HEIGHT - SCOREBOARD_HEIGHT; 
+			// mainGameViewport.h = SCREEN_HEIGHT - SCOREBOARD_HEIGHT; 
+
+			SDL_Rect ScoreBoardViewport; 
+			ScoreBoardViewport.x = 0; 
+			ScoreBoardViewport.y = SCREEN_HEIGHT - SCOREBOARD_HEIGHT; 
+			ScoreBoardViewport.w = SCREEN_WIDTH; 
+			ScoreBoardViewport.h = SCOREBOARD_HEIGHT; 
 
 			for(int i = 0; i < gameBricks.size(); i++)
 			{
@@ -877,6 +1101,11 @@ int main( int argc, char* args[] )
 			}
 
 			ball mainBall;
+			scoreboard mainScoreboard; 
+			mainScoreboard.gamescore = 0; 
+
+			mainBall.mPosX = SCREEN_WIDTH/2 - mainBall.ball_WIDTH/2; 
+			mainBall.mPosY = SCREEN_HEIGHT - SCOREBOARD_HEIGHT - mainPaddle.paddle_height - mainBall.ball_HEIGHT/2; 
 
 			// Game has started?
 			bool gameOn = false; 
@@ -912,20 +1141,26 @@ int main( int argc, char* args[] )
 					}
 				}
 
+				//Clear screen
+				SDL_SetRenderDrawColor( gRenderer, 195, 195, 195, 0xFF );
+				SDL_RenderClear( gRenderer );
+
 				//Move the paddle
 				mainPaddle.move();
-				mainBall.move(gameBricks);
-
-				//Clear screen
-				SDL_SetRenderDrawColor( gRenderer, 0xFF, 0xFF, 0xFF, 0xFF );
-				SDL_RenderClear( gRenderer );
+				mainBall.move(gameBricks, mainPaddle);
 
 				//Remove destroyed blocks if they exist
 				for(int i = 0; i < gameBricks.size(); i++)
 				{
 					if(gameBricks[i].hitbyball == true)
+					{
 						gameBricks.erase(gameBricks.begin() + i);
+						mainScoreboard.gamescore++; 
+					}
 				}
+
+				// Switch to the main game viewport and render all objects
+				SDL_RenderSetViewport(gRenderer, &mainGameViewport); 
 
 				//Arrange and Render bricks
 				for(brick b: gameBricks)
@@ -936,9 +1171,36 @@ int main( int argc, char* args[] )
 				mainPaddle.render(); 
 				mainBall.render();
 				
+				// Switch to the scoreboard viewport and update the scoreboard
+				SDL_RenderSetViewport(gRenderer, &ScoreBoardViewport);
 
+				mainScoreboard.render(); 
+
+				avgFPS = countedFrames / (fpsTimer.getTicks() / 1000.f);
+
+				if (avgFPS > 2000000)
+				{
+					avgFPS = 0; 
+				}
+
+				fpsTimeText.str("");
+				fpsTimeText << avgFPS; 
+
+				gFPSTextTexture.loadFromRenderedText(fpsTimeText.str().c_str(), textColor);
+				gFPSTextTexture.render(64 + 36, 128); 
+
+				scoreText.str("");
+				scoreText << mainScoreboard.gamescore; 
+				gScoreTextTexture.loadFromRenderedText(scoreText.str().c_str(), textColor);
+				gScoreTextTexture.render(64 + 52, 64);
+
+				gFPSTextHeaderTexture.render(64, 128);
+				gScoreTextHeaderTexture.render(64, 64);
+				
 				//Update screen
 				SDL_RenderPresent( gRenderer );
+
+				++countedFrames;
 			}
 		}
 	}
