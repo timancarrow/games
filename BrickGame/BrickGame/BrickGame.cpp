@@ -5,6 +5,7 @@ and may not be redistributed without written permission.*/
 #include <SDL.h>
 #include <SDL_image.h>
 #include <SDL_ttf.h>
+#include <SDL_mixer.h>
 #include <stdio.h>
 #include <string>
 #include <sstream>
@@ -274,6 +275,15 @@ SDL_Rect gScoreBoardClip;
 
 //Global Font
 TTF_Font *gFont = NULL; 
+
+// Game Music
+Mix_Music *gMusic = NULL; 
+
+// Sound FX
+Mix_Chunk *gBrickHitSound = NULL;
+Mix_Chunk *gPaddleHitSound = NULL;
+Mix_Chunk *gGameOverSound = NULL;
+Mix_Chunk *gGameWinSound = NULL; 
 
 
 LTexture::LTexture()
@@ -747,6 +757,8 @@ void ball::move(std::vector<brick> &gameBricks, paddle &gamePaddle)
 		//update balls collider
 		shiftColliders();
 
+		Mix_PlayChannel(-1, gPaddleHitSound, 0); 
+
 	}
 }
 
@@ -779,7 +791,7 @@ bool init()
 	bool success = true;
 
 	//Initialize SDL
-	if( SDL_Init( SDL_INIT_VIDEO ) < 0 )
+	if( SDL_Init( SDL_INIT_VIDEO | SDL_INIT_AUDIO) < 0 )
 	{
 		printf( "SDL could not initialize! SDL Error: %s\n", SDL_GetError() );
 		success = false;
@@ -825,6 +837,13 @@ bool init()
                 if( TTF_Init() == -1 )
                 {
                     printf( "SDL_ttf could not initialize! SDL_ttf Error: %s\n", TTF_GetError() );
+                    success = false;
+                }
+
+				 //Initialize SDL_mixer
+                if( Mix_OpenAudio( 44100, MIX_DEFAULT_FORMAT, 2, 2048 ) < 0 )
+                {
+                    printf( "SDL_mixer could not initialize! SDL_mixer Error: %s\n", Mix_GetError() );
                     success = false;
                 }
 			}
@@ -898,6 +917,21 @@ bool loadMedia()
 		gFPSTextHeaderTexture.loadFromRenderedText("FPS: ", textColor); 
 	}
 
+	// Sound FX
+	gBrickHitSound = Mix_LoadWAV("media/brickhitsound.wav");
+	if(gBrickHitSound == NULL)
+	{
+		printf("Failed to load brickhit sound. Error: %s\n", Mix_GetError());
+		success = false; 
+	}
+
+	gPaddleHitSound = Mix_LoadWAV("media/paddlehitsound.wav");
+	if(gPaddleHitSound == NULL)
+	{
+		printf("Failed to load paddle hit sound. Error: %s\n", Mix_GetError());
+		success = false; 
+	}
+
 	return success;
 }
 
@@ -907,6 +941,12 @@ void close()
 	gDotTexture.free();
 	gBallTexture.free();
 	gPaddleTexture.free();
+
+	//Free Sound FX
+	Mix_FreeChunk(gBrickHitSound);
+	Mix_FreeChunk(gPaddleHitSound); 
+	Mix_FreeChunk(gGameOverSound);
+	Mix_FreeChunk(gGameWinSound); 
 
 	//Free global font
 	TTF_CloseFont(gFont); 
@@ -918,6 +958,7 @@ void close()
 	gRenderer = NULL;
 
 	//Quit SDL subsystems
+	Mix_Quit();
 	TTF_Quit();
 	IMG_Quit();
 	SDL_Quit();
@@ -1156,6 +1197,7 @@ int main( int argc, char* args[] )
 					{
 						gameBricks.erase(gameBricks.begin() + i);
 						mainScoreboard.gamescore++; 
+						Mix_PlayChannel(-1, gBrickHitSound, 0); 
 					}
 				}
 
